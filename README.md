@@ -70,7 +70,3 @@ Or drag the entire project folder into Netlify Drop.
 
 `netlify.toml` ensures proper settings.
 
----
-
-## 📝 License
-MIT License – free to modify however you want.
