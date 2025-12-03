@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DS Lite Portfolio</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #111;
+      }
+      canvas#webgl {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+
+    <!-- Import map: tell the browser where "three" and "three/addons" live -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <canvas id="webgl"></canvas>
+
+    <!-- Your ES module entrypoint -->
+    <script type="module" src="/src/js/main.js"></script>
+  </body>
+</html>
