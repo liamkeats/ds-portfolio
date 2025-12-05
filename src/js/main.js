@@ -4,6 +4,14 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import {
+  bottomScreenTexture,
+  topScreenTexture,
+  setMode,
+  renderScreens,
+  handleUiButton,
+} from './ds-ui.js';
+
 console.log('✅ Three.js version:', THREE.REVISION);
 
 const canvas = document.getElementById('webgl');
@@ -12,7 +20,6 @@ const canvas = document.getElementById('webgl');
 const buttonMeshes = {};
 
 // Map logical button IDs to mesh names from Blender
-// Make sure the "name" values match EXACTLY what you used in Blender.
 const BUTTON_CONFIG = [
   { id: 'A',       name: 'Button_A' },
   { id: 'B',       name: 'Button_B' },
@@ -22,17 +29,15 @@ const BUTTON_CONFIG = [
   { id: 'D_DOWN',  name: 'Dpad_Down' },
   { id: 'D_LEFT',  name: 'Dpad_Left' },
   { id: 'D_RIGHT', name: 'Dpad_Right' },
-  // Optional:
   { id: 'START',   name: 'Button_Start' },
   { id: 'SELECT',  name: 'Button_Select' },
 ];
-
 
 // Scene
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 
-//group
+// Group to hold DS + screens
 const dsGroup = new THREE.Group();
 scene.add(dsGroup);
 
@@ -54,10 +59,6 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
-// Axes (you can remove this later)
-// const axesHelper = new THREE.AxesHelper(0.5);
-// scene.add(axesHelper);
-
 // Lights
 const ambient = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambient);
@@ -70,31 +71,14 @@ scene.add(dirLight);
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-// DS model + bottom screen
+// DS model + screen planes
 let dsModel = null;
 let bottomScreenPlane = null;
 let topScreenPlane = null;
 
-// Simple "screens" state machine
-const screens = ['home', 'projects', 'about', 'contact'];
-let screenIndex = 0;
-
-function updateBottomScreenVisual() {
-  if (!bottomScreenPlane) return;
-
-  const colors = {
-    home: 0x222244,
-    projects: 0x224422,
-    about: 0x442222,
-    contact: 0x444422,
-  };
-
-  const current = screens[screenIndex];
-  bottomScreenPlane.material.color.setHex(colors[current]);
-  console.log('📺 Bottom screen ->', current);
-}
-
-// Load DS model
+// --------------------
+// LOAD DS MODEL
+// --------------------
 
 const loader = new GLTFLoader();
 
@@ -103,39 +87,33 @@ loader.load(
   (gltf) => {
     console.log('✅ Model loaded');
     dsModel = gltf.scene;
-    // TEMP: log all mesh names so we can see what the buttons are called
+
+    // Log mesh names once for debugging
     dsModel.traverse((obj) => {
       if (obj.isMesh) {
         console.log('Mesh:', obj.name);
       }
     });
 
-
-    // --- Normalize scale + center model ---
     const box = new THREE.Box3().setFromObject(dsModel);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    console.log('Model size:', size);
-    console.log('Model center:', center);
-
+    // Scale DS to a nice size
     const maxDim = Math.max(size.x, size.y, size.z);
-    const desiredSize = 2.0; // world size for the DS
+    const desiredSize = 2.0;
     const scale = desiredSize / maxDim;
     dsModel.scale.setScalar(scale);
 
-    // Recompute after scaling
+    // Recenter DS at origin
     box.setFromObject(dsModel);
     box.getSize(size);
     box.getCenter(center);
-
-    // Center DS at origin
     dsModel.position.sub(center);
 
-    // Add DS to group
     dsGroup.add(dsModel);
 
-    // --- Find and store button meshes by name ---
+    // Hook up button meshes
     BUTTON_CONFIG.forEach((config) => {
       let found = null;
 
@@ -156,7 +134,7 @@ loader.load(
       }
     });
 
-    // --- Camera placement ---
+    // Camera fit
     const fitHeightDistance =
       size.y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
     const fitWidthDistance = fitHeightDistance / camera.aspect;
@@ -170,48 +148,34 @@ loader.load(
     controls.maxDistance = distance * 3.0;
     controls.update();
 
-    // --- Bottom screen overlay plane ---
-    const bottomGeom = new THREE.PlaneGeometry(1.10, 0.74);
+    // Bottom screen overlay plane
+    const bottomGeom = new THREE.PlaneGeometry(0.94, 0.71);
     const bottomMat = new THREE.MeshBasicMaterial({
-      color: 0x222244,        // "home" color
-      side: THREE.DoubleSide,
+      map: bottomScreenTexture,
       transparent: true,
-      opacity: 0.95,
     });
 
     bottomScreenPlane = new THREE.Mesh(bottomGeom, bottomMat);
-
-    // Your tuned values
-    bottomScreenPlane.position.set(-0.005, -0.396, 0.328);
-    bottomScreenPlane.rotation.x = -1.571;
-    // Nudge a tiny bit out from the plastic to avoid z-fighting
-
+    bottomScreenPlane.position.set(-0.00005, -0.396, 0.328);
+    bottomScreenPlane.rotation.x = -1.571; // -90deg in radians-ish
+    bottomScreenPlane.translateZ(0.003);
     dsGroup.add(bottomScreenPlane);
 
-    console.log('Bottom screen plane position (world):', bottomScreenPlane.position);
-
-    updateBottomScreenVisual();
-
-    // --- Top screen overlay plane ---
-    const topGeom = new THREE.PlaneGeometry(1.10, 0.70);
+    // Top screen overlay plane
+    const topGeom = new THREE.PlaneGeometry(0.94, 0.71);
     const topMat = new THREE.MeshBasicMaterial({
-      color: 0x00ff88,        // bright for now so you can SEE it
-      side: THREE.DoubleSide,
+      map: topScreenTexture,
       transparent: true,
-      opacity: 0.55,
     });
 
     topScreenPlane = new THREE.Mesh(topGeom, topMat);
-
-    // Your tuned values
-    topScreenPlane.position.set(-0.040, 0.154, -0.482);
+    topScreenPlane.position.set(-0.005, 0.154, -0.482);
     topScreenPlane.rotation.x = -0.611;
-    // Push slightly outward along its local normal so it sits on top of the screen
     topScreenPlane.translateZ(0.0005);
-
     dsGroup.add(topScreenPlane);
 
-    console.log('Top screen plane position (world):', topScreenPlane.position);
+    // Start on intro screen
+    setMode('intro');
   },
   undefined,
   (error) => {
@@ -219,8 +183,23 @@ loader.load(
   }
 );
 
+// --------------------
+// INPUT / INTERACTION
+// --------------------
 
-// Pointer → bottom screen detection
+function handleButtonPress(id, mesh) {
+  // 3D press animation
+  if (mesh && mesh.userData.originalPosition) {
+    mesh.position.y -= 0.01;
+    setTimeout(() => {
+      mesh.position.copy(mesh.userData.originalPosition);
+    }, 120);
+  }
+
+  // Hand off to DS UI logic
+  handleUiButton(id);
+}
+
 function onPointerDown(event) {
   const rect = renderer.domElement.getBoundingClientRect();
 
@@ -229,90 +208,36 @@ function onPointerDown(event) {
 
   raycaster.setFromCamera(mouse, camera);
 
-  // 1) Touchscreen first
-  if (bottomScreenPlane) {
-    const screenHits = raycaster.intersectObject(bottomScreenPlane, true);
-    if (screenHits.length > 0) {
-      screenIndex = (screenIndex + 1) % screens.length;
-      updateBottomScreenVisual();
-      return;
-    }
+  const targets = Object.values(buttonMeshes);
+  if (targets.length === 0) return;
+
+  const intersects = raycaster.intersectObjects(targets, true);
+  if (intersects.length === 0) return;
+
+  let hit = intersects[0].object;
+  while (hit && !hit.userData.buttonId) {
+    hit = hit.parent;
   }
+  if (!hit || !hit.userData.buttonId) return;
 
-  // 2) Then check DS model for D-pad meshes
-  if (!dsModel) return;
-
-  const hits = raycaster.intersectObject(dsModel, true);
-  if (hits.length === 0) return;
-
-  let obj = hits[0].object;
-  while (obj && !obj.isMesh) {
-    obj = obj.parent;
-  }
-  if (!obj) return;
-
-  const lname = obj.name.toLowerCase();
-  console.log('Clicked mesh:', obj.name);
-
-  if (lname === 'dpad_up') {
-    console.log('🎮 D-PAD UP');
-  } else if (lname === 'dpad_down') {
-    console.log('🎮 D-PAD DOWN');
-  } else if (lname === 'dpad_left') {
-    console.log('🎮 D-PAD LEFT');
-  } else if (lname === 'dpad_right') {
-    console.log('🎮 D-PAD RIGHT');
-  }
+  const id = hit.userData.buttonId;
+  handleButtonPress(id, hit);
 }
 
 window.addEventListener('pointerdown', onPointerDown);
 
+// --------------------
+// ANIMATION LOOP
+// --------------------
 
-function handleButtonPress(id, mesh) {
-  console.log('🎮 Button pressed:', id);
-
-  // Tiny visual press animation
-  if (mesh && mesh.userData.originalPosition) {
-    mesh.position.y -= 0.01; // push it down a bit
-
-    setTimeout(() => {
-      mesh.position.copy(mesh.userData.originalPosition);
-    }, 120);
-  }
-
-  // Hook into your menu logic here:
-  switch (id) {
-    case 'A':
-      // e.g. confirm / open selected option
-      break;
-    case 'B':
-      // e.g. back / close
-      break;
-    case 'X':
-    case 'Y':
-      // maybe cycle themes or projects
-      break;
-    case 'D_UP':
-      // move selection up on bottom screen
-      break;
-    case 'D_DOWN':
-      // move selection down on bottom screen
-      break;
-    case 'D_LEFT':
-      // previous tab / previous project
-      break;
-    case 'D_RIGHT':
-      // next tab / next project
-      break;
-    // case 'START':
-    // case 'SELECT':
-    //   ...
-  }
-}
-
-// Animation loop
-function animate() {
+function animate(timestamp = 0) {
   requestAnimationFrame(animate);
+
+  // Update the DS screens
+  renderScreens(timestamp);
+
+  // Slight idle motion (optional, comment out if you don't like it)
+  // dsGroup.rotation.y = Math.sin(timestamp * 0.0002) * 0.08;
 
   controls.update();
   renderer.render(scene, camera);
